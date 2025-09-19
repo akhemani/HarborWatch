@@ -48,7 +48,11 @@ harborwatch/
 └─ src/
 
 └─ main/
+
 ├─ java/dev/harborwatch/HarborWatchApplication.java
+
 └─ resources/
+
 ├─ application.yml
+
 └─ db/migration/V1__init.sql
