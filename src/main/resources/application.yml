@@ -1,0 +1,25 @@
+server:
+  port: 8080  # container-internal port
+
+spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/appdb}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:postgres123}
+  jpa:
+    hibernate:
+      ddl-auto: validate  # rely on Flyway for schema; do not auto-create
+    open-in-view: false
+  flyway:
+    enabled: true         # run migrations on startup
+
+management:
+  endpoints:
+    web:
+      # expose only health & info 
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true

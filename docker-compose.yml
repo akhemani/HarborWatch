@@ -1,0 +1,49 @@
+# Services:
+# - db: PostgreSQL with a healthcheck
+# - app: HarborWatch Spring Boot app, depends on db health
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: hw-db
+    environment:
+      POSTGRES_DB: appdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres123
+    ports:
+      - "5432:5432"               # expose for local dev tools
+    healthcheck:                   # ensure app waits until DB ready
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - hw-net
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hw-app
+    depends_on:
+      db:
+        condition: service_healthy  # wait for DB health before starting
+    environment:
+      # App reads these in application.yml via ${...}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/appdb
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres123
+    ports:
+      - "8080:8080"               # host:container
+    restart: unless-stopped
+    networks:
+      - hw-net
+
+networks:
+  hw-net:
+    driver: bridge
+
+volumes:
+  pgdata:
