@@ -10,6 +10,8 @@ services:
       POSTGRES_DB: appdb
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres123
+      TZ: Asia/Kolkata        # OS-level timezone (optional, helps logs/tools)
+      PGTZ: Asia/Kolkata      # helps some client libs; primary control is V2 migration above
     ports:
       - "5432:5432"               # expose for local dev tools
     healthcheck:                   # ensure app waits until DB ready
@@ -35,6 +37,8 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/appdb
       SPRING_DATASOURCE_USERNAME: postgres
       SPRING_DATASOURCE_PASSWORD: postgres123
+      TZ: Asia/Kolkata
+      JAVA_OPTS: -Duser.timezone=Asia/Kolkata -XX:MaxRAMPercentage=75
     ports:
       - "8080:8080"               # host:container
     restart: unless-stopped

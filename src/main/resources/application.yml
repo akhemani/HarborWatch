@@ -10,6 +10,8 @@ spring:
     hibernate:
       ddl-auto: validate  # rely on Flyway for schema; do not auto-create
     open-in-view: false
+    properties:           # Force Hibernate JDBC to use IST for timestamp binding/display at the JDBC layer
+      hibernate.jdbc.time_zone: Asia/Kolkata  
   flyway:
     enabled: true         # run migrations on startup
 
@@ -23,3 +25,9 @@ management:
     health:
       probes:
         enabled: true
+
+logging:
+  level:
+    root: INFO
+    org.springframework: INFO
+    dev.harborwatch: INFO

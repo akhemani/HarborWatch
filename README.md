@@ -36,23 +36,13 @@ docker run --rm \
 ## Project layout
 
 harborwatch/
-
 ├─ docker-compose.yml
-
 ├─ Dockerfile
-
 ├─ pom.xml
-
 ├─ README.md
-
 └─ src/
-
 └─ main/
-
 ├─ java/dev/harborwatch/HarborWatchApplication.java
-
 └─ resources/
-
 ├─ application.yml
-
 └─ db/migration/V1__init.sql
