@@ -1,126 +1,251 @@
-# HarborWatch — Step 2 (Core app + Postgres + Health + LoadServer + DebugAPIs + Background Scheduler)
-This repo currently includes Step 1 (Core App + Postgres + Health) and Step 2 (Load Endpoints + Background Jobs + Sane Logs with IST timestamps).
+# HarborWatch — Step 2 (Core App + Postgres + Health + LoadServer + DebugAPIs + Background Scheduler)
 
- # What’s here (Step 1 & Step 2)
+This repository includes Steps 1–3 of the HarborWatch project, providing a Spring Boot application with stress testing capabilities, metrics exposure, and a Bash automation script (`cli_live_dashboard.sh`) for running tests and monitoring.
 
-✅ Spring Boot app with /actuator/health.
+## Table of Contents
+- [What's Included (Steps 1–3)](#whats-included-steps-1–3)
+- [Repo Structure](#repo-structure)
+- [Services (Docker Compose)](#services-docker-compose)
+- [Database Schema](#database-schema)
+- [Build and Run](#build-and-run)
+- [Endpoints (Step 3)](#endpoints-step-3)
+- [Load / Stress (Step 2)](#load--stress-step-2)
+- [Debug (Step 2 — Dev-Only)](#debug-step-2--dev-only)
+- [Metrics (Step 3)](#metrics-step-3)
+- [Automation Script (cli_live_dashboard.sh)](#automation-script-cli_live_dashboard)
+  - [Overview](#overview)
+  - [How to Run](#how-to-run)
+  - [Menu Options](#menu-options)
+  - [Output After Each Run](#output-after-each-run)
+  - [Prerequisites](#prerequisites)
+  - [Troubleshooting](#troubleshooting)
+  - [Tips](#tips)
+ 
 
-✅ PostgreSQL with Flyway migrations (schema managed, no ad-hoc DDL).
+## What's Included (Steps 1–3)
 
-✅ Two tables:
+- ✅ **Step 1: Core App + Postgres + Health**
+  - Spring Boot service with `/actuator/health`
+  - Postgres with Flyway migrations
+  - Schema: `performance_data`, `computation_results`
+  - Docker Compose: `db` + `app`
 
-  * performance_data — periodic metrics & test metrics.
-  * computation_results — summaries of load runs.
+- ✅ **Step 2: Load Endpoints + Background Jobs + Clear Logs**
+  - Endpoints to create CPU, memory, and database load
+  - `@Scheduled` job (every 5s) writing metrics to DB
+  - Logs to stdout (no log files), human-readable, IST timestamps
+  - Optional debug endpoints to inspect DB state
 
-✅ Load APIs to create real CPU / Memory / DB pressure:
+- ✅ **Step 3: Metrics Exposure (No Dashboards)**
+  - `/actuator/prometheus` (Micrometer + Prometheus registry)
+  - cAdvisor (container metrics/UI)
+  - `node_exporter` (host metrics)
 
-  * GET /api/cpu-intensive?iterations=...
-  * GET /api/memory-intensive?sizeMb=...
-  * GET /api/database-intensive?ops=...
-  * GET /api/combined-stress?durationSec=...
+- ✅ **Automation Script (`cli_live_dashboard.sh`)**
+  - Menu-driven stress tests + metrics snapshots + last logs
+  - Options to reset app metrics and/or truncate DB tables
 
-✅ Background scheduler (every 5s) writes 4 sample metrics to the DB.
-
-✅ Clear, container-friendly logs to stdout (no files) with IST timestamps.
-
-✅ Debug endpoints to view DB state without SQL:
-
-  * GET /api/debug/summary
-  * GET /api/debug/performance/recent
-  * GET /api/debug/computations/recent
-  * GET /api/debug/now (compare App clock, DB clock, last rows)
-
-Important: Logs are not stored in the DB (production best practice).
-DB holds data (metrics & run summaries). Logs go to container stdout and later to a log pipeline.
-
-# Repo Layout
+## Repo Structure
 
 ```text
 harborwatch/
-  ├─ docker-compose.yml          # db + app (Step 1 & 2)
-  ├─ Dockerfile                  # builds the app image (non-root, JRE 21)
-  ├─ README.md                   # this file
-  ├─ pom.xml                     # Step 1 & 2 deps
+  ├─ docker-compose.yml             # db + app + cadvisor + node_exporter
+  ├─ Dockerfile                     # Java 21 JRE base, non-root
+  ├─ README.md                      # this file
+  ├─ cli_live_dashboard.sh                 # menu script (stress + metrics + logs)
+  ├─ pom.xml
   └─ src/
-     ├─ main/java/dev/harborwatch/...
-     │  ├─ HarborWatchApplication.java     # @EnableScheduling
-     │  ├─ load/LoadService.java           # CPU/Mem/DB/Combined logic
-     │  ├─ load/LoadController.java        # /api/* endpoints
-     │  ├─ load/MetricsScheduler.java      # 5s tick → performance_data
-     │  └─ debug/*.java                    # read-only debug endpoints
-     └─ main/resources/
-        ├─ application.yml                 # DB + logging levels + Hibernate TZ
-        ├─ logback-spring.xml              # plain, human-friendly logs in IST
-        └─ db/migration/
-           ├─ V1__init.sql                 # base schema
-           └─ V2__ist_timezone_and_types.sql
+     └─ main/
+        ├─ java/dev/harborwatch/
+        │  ├─ HarborWatchApplication.java      # @EnableScheduling
+        │  ├─ load/LoadService.java            # CPU/Mem/DB/Combined logic
+        │  ├─ load/LoadController.java         # /api/* endpoints
+        │  ├─ load/MetricsScheduler.java       # 5s tick → performance_data (IST)
+        │  └─ debug/
+        │     ├─ DebugController.java          # recent rows & counts
+        │     └─ ClockDebugController.java     # app vs DB time & last rows
+        └─ resources/
+           ├─ application.yml                  # DB, Actuator, Micrometer, logging
+           ├─ logback-spring.xml               # plain text logs in IST
+           └─ db/migration/
+              ├─ V1__init.sql                  # base schema
+              └─ V2__ist_timezone_and_types.sql # timestamptz + Asia/Kolkata
 ```
 
+## Services (Docker Compose)
 
-# Build and Run
- * docker compose up -d --build
+- **db** — Postgres 15
+  - Health check: `pg_isready`
+  - TZ env: `TZ=Asia/Kolkata`, `PGTZ=Asia/Kolkata`
+  - DB: `appdb` / user: `postgres` / pass: `postgres123`
 
-# Endpoints (Step 2)
-# Load / Stress
+- **app** — Spring Boot service
+  - Exposes:
+    - `GET /actuator/health`
+    - `GET /actuator/prometheus`
+    - `GET /api/...` (load endpoints)
+    - `GET /api/debug/...` (dev only)
+  - JVM TZ: `-Duser.timezone=Asia/Kolkata`
+  - Logs: stdout, IST timestamps
 
-* GET /api/cpu-intensive?iterations=1000000
-  * Runs a CPU-bound loop; caps applied to protect your machine.
-  * Persists a summary row to computation_results.
+- **cadvisor** — Container metrics + simple UI
+  - UI: `http://localhost:8085`
 
-* GET /api/memory-intensive?sizeMb=50
-  * Allocates/touches memory; returns duration and checksum.
+- **node_exporter** — Host metrics
+  - Text metrics on `http://localhost:9100` (host network mode)
 
-* GET /api/database-intensive?ops=1000
-  * Inserts many rows into performance_data + periodic reads.
-  * Persists a summary row to computation_results.
+## Database Schema
 
-* GET /api/combined-stress?durationSec=20
-  * Parallel mix of CPU/Mem/DB operations for N seconds.
-  * Persists a summary row to computation_results.
+- **performance_data**
+  - Written by:
+    - Scheduler (every 5s): `cpu_load`, `memory_usage`, `request_count`, `error_rate`
+    - `/api/database-intensive`: many `test_metric_*` rows per run
 
-# Debug (read-only)
+- **computation_results**
+  - Written by:
+    - `/api/cpu-intensive`
+    - `/api/database-intensive`
+    - `/api/combined-stress`
 
-* GET /api/debug/summary
-  * Total counts in both tables.
+## Build and Run
 
-* GET /api/debug/performance/recent
-  * Last 10 rows from performance_data.
+Run the following command to build and start the services:
 
-* GET /api/debug/computations/recent
-  * Last 10 rows from computation_results.
+```bash
+docker compose up -d --build
+```
 
-* GET /api/debug/now
-  * Compares App clock (IST), DB now() (IST), and last rows from both tables.
+## Endpoints (Step 3)
 
-# Health
+- **App Base URL**: `http://localhost:8080`
+- **Actuator Health**: `http://localhost:8080/actuator/health`
+- **Prometheus Exporter**: `http://localhost:8080/actuator/prometheus`
+- **cAdvisor UI**: `http://localhost:8085`
+- **node_exporter Metrics**: `http://localhost:9100/metrics`
 
-* GET /actuator/health → {"status":"UP"}
+## Load / Stress (Step 2)
 
-# Quick tests
-# Hit the load endpoints
+- `GET /api/cpu-intensive?iterations=1000000`
+- `GET /api/memory-intensive?sizeMb=50`
+- `GET /api/database-intensive?ops=1000`
+- `GET /api/combined-stress?durationSec=20`
 
-* curl "http://localhost:8080/api/cpu-intensive?iterations=2000000"
-* curl "http://localhost:8080/api/memory-intensive?sizeMb=50"
-* curl "http://localhost:8080/api/database-intensive?ops=1000"
-* curl "http://localhost:8080/api/combined-stress?durationSec=20"
+## Debug (Step 2 — Dev-Only)
 
+- `GET /api/debug/summary` — Row counts in both tables
+- `GET /api/debug/performance/recent` — Last 10 `performance_data` rows
+- `GET /api/debug/computations/recent` — Last 10 `computation_results` rows
+- `GET /api/debug/now` — Compare app clock, DB clock, and latest rows
 
-# Watch logs (human-readable, IST)
+## Metrics (Step 3)
 
-* docker logs -f hw-app
-  * Example lines every ~5s:
-  * ... MetricsScheduler - scheduler tick START appTimeIST=2025-09-20T15:51:05.123+05:30[Asia/Kolkata]
-  * ... MetricsScheduler - scheduler tick DONE cpu_load=41.3 memory_usage=52.8 request_count=309 error_rate=7.1
+- **Prometheus**: `GET /actuator/prometheus` — App metrics (JVM, threads, GC, `http.server.requests`, etc.)
+- **cAdvisor**: `http://localhost:8085` — Container CPU, memory, filesystem, and I/O per container
+- **node_exporter**: `http://localhost:9100/metrics` — Host CPU, memory, disk, and network metrics
 
-# Inspect DB directly
+## Automation Script (cli_live_dashboard.sh)
 
-# counts
-* docker exec -it hw-db psql -U postgres -d appdb -c "SELECT COUNT(*) FROM performance_data;"
-* docker exec -it hw-db psql -U postgres -d appdb -c "SELECT COUNT(*) FROM computation_results;"
+### Overview
+The `cli_live_dashboard.sh` script automates stress testing for your application by running various test patterns (CPU, memory, database, or combined) and outputs key metrics and logs. It integrates with Docker, Prometheus, and cAdvisor for monitoring and is designed to be run at the root of your repository.
 
-# recent rows (IST; look for +05:30)
-* docker exec -it hw-db psql -U postgres -d appdb -c \
-"SELECT id, timestamp, metric_name, metric_value, metadata FROM performance_data ORDER BY id DESC LIMIT 10;"
+### How to Run
+1. Place the script at the repository root as `cli_live_dashboard.sh`.
+2. Make it executable:
+   ```bash
+   chmod +x cli_live_dashboard.sh
+   ```
+3. Run the script:
+   ```bash
+   ./cli_live_dashboard.sh
+   ```
 
-* docker exec -it hw-db psql -U postgres -d appdb -c \
-"SELECT id, timestamp, computation_type, input_size, duration_ms FROM computation_results ORDER BY id DESC LIMIT 10;"
+### Menu Options
+The script provides the following menu options for stress testing:
+
+- **Low CPU**: Burst iterations=200,000
+- **High CPU**: Burst iterations=5,000,000
+- **Memory**: Burst sizeMb=100
+- **Database**: Burst ops=800
+- **Combined (heavy)**: Parallel combined stress + interleaved CPU/memory bursts
+- **Reset metrics**: Restart app container (resets Actuator counters; DB unchanged)
+- **Reset metrics + wipe DB tables**: Restart app + TRUNCATE both tables
+- **Exit**: Exit the script
+
+### Output After Each Run
+After each test run, the script outputs:
+
+#### App Metrics (from `/actuator/prometheus`)
+- `process_cpu_usage`
+- Aggregated `http_server_requests_seconds`:
+  - Count
+  - Sum
+  - Max
+  - Average (for the chosen URI)
+
+#### Host Metrics (from `node_exporter` on `:9100`)
+- Per-CPU time spent in:
+  - Idle
+  - Iowait
+  - IRQ
+  - Nice
+  - Softirq
+  (Shows first 16 CPUs by default)
+- `MemAvailable_bytes` (displayed in GiB)
+
+#### Logs
+- Last 8 application logs (stdout tail of `hw-app`)
+
+### Prerequisites
+- **Docker stack**: Ensure the stack is running:
+  ```bash
+  docker compose up -d
+  ```
+- **Dependencies**: The script uses `bash`, `curl`, `awk`, and `grep`.
+- **Prometheus Actuator**: Ensure `micrometer-registry-prometheus` is included in `pom.xml` and configured in `application.yml`:
+  ```yaml
+  management:
+    endpoints:
+      web:
+        exposure:
+          include: health,info,prometheus
+  ```
+
+### Troubleshooting
+#### No New Scheduler Rows
+- Rebuild and restart the application:
+  ```bash
+  ./mvnw -q -DskipTests package && docker compose up -d --build
+  ```
+- Check logs for scheduler tick `START/DONE` lines:
+  ```bash
+  docker logs -f hw-app
+  ```
+
+#### DB Time Incorrect
+- Verify the database time:
+  ```sql
+  SELECT now();
+  ```
+
+#### `/actuator/prometheus` Missing
+- Ensure `micrometer-registry-prometheus` is in `pom.xml`.
+- Verify `application.yml` configuration (see [Prerequisites](#prerequisites)).
+
+#### cAdvisor UI Not Loading
+- Visit `http://localhost:8085`.
+- Check Docker volumes and permissions (Linux requires `/sys` and `/var/run/docker.sock` binds).
+
+#### High Resource Usage
+- Reduce the following parameters in the script or your `curl` tests:
+  - Iterations
+  - `sizeMb`
+  - `ops`
+  - `durationSec`
+
+### Tips
+- **View all CPUs**: Run the script with:
+  ```bash
+  MAX_CPUS=999 ./cli_live_dashboard.sh
+  ```
+- **Monitor with cAdvisor**: Open `http://localhost:8085` and click the `hw-app` container to monitor resource usage during tests.
+
