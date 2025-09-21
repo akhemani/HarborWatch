@@ -8,11 +8,17 @@
  */
 package dev.harborwatch.load;
 
+import java.util.Map;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
-import java.util.Map;
+import io.micrometer.core.annotation.Timed;
+import jakarta.servlet.http.HttpServletRequest;
 
 @RestController
 @RequestMapping("/api")
@@ -25,9 +31,12 @@ public class LoadController {
 		this.loadService = loadService;
 	}
 
+	@Timed(value = "api.cpu_intensive", description = "CPU endpoint duration")
 	@GetMapping("/cpu-intensive")
-	public Map<String, Object> cpu(@RequestParam(defaultValue = "1000000") int iterations) {
-		log.info("HTTP GET /api/cpu-intensive iterations={}", iterations);
+	public Map<String, Object> cpu(@RequestParam(defaultValue = "1000000") int iterations, HttpServletRequest req) {
+		String ua = req.getHeader("User-Agent");
+		String ip = req.getRemoteAddr();
+		log.info("HTTP GET /api/cpu-intensive iterations={} from ip={} ua={}", iterations, ip, ua);
 		return loadService.cpuIntensive(iterations);
 	}
 

@@ -45,6 +45,45 @@ services:
     networks:
       - hw-net
 
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.47.2
+    container_name: hw-cadvisor
+    privileged: true                  # lets cAdvisor read cgroups/kmsg cleanly
+    ports:
+      - "8085:8080"                   # UI: http://localhost:8085
+    volumes:
+      - /:/rootfs:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /sys:/sys:ro
+      - /sys/fs/cgroup:/sys/fs/cgroup:ro
+      - /var/lib/docker:/var/lib/docker:ro   # your Docker Root Dir
+      - /etc/machine-id:/etc/machine-id:ro   # quiets UUID warning
+      - /var/lib/dbus/machine-id:/var/lib/dbus/machine-id:ro
+      - /dev/kmsg:/dev/kmsg:ro               # enables OOM events source (optional)
+    command:
+      - --docker_only=true
+      - --housekeeping_interval=10s
+      - --store_container_labels=false
+      - --housekeeping_interval=1s          # collect every 1 second
+      - --max_housekeeping_interval=1s      # don’t back off
+      - --allow_dynamic_housekeeping=false  # keep interval fixed
+    restart: unless-stopped
+
+  node_exporter:
+    image: prom/node-exporter:v1.8.1
+    container_name: hw-node-exporter
+    ports:
+      - "9100:9100"
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    restart: unless-stopped
+
 networks:
   hw-net:
     driver: bridge

@@ -1,5 +1,10 @@
 server:
   port: 8080  # container-internal port
+  tomcat:
+    accesslog:
+      enabled: true
+      # "combined" includes remote addr & user agent; outputs to /logs in container
+      pattern: combined
 
 spring:
   datasource:
@@ -11,20 +16,24 @@ spring:
       ddl-auto: validate  # rely on Flyway for schema; do not auto-create
     open-in-view: false
     properties:           # Force Hibernate JDBC to use IST for timestamp binding/display at the JDBC layer
-      hibernate.jdbc.time_zone: Asia/Kolkata  
+      hibernate.jdbc.time_zone: Asia/Kolkata
   flyway:
     enabled: true         # run migrations on startup
 
 management:
   endpoints:
     web:
-      # expose only health & info 
       exposure:
-        include: health,info
+        include: health,info,prometheus  # expose only health & info
   endpoint:
-    health:
-      probes:
-        enabled: true
+    prometheus:
+      enabled: true
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+      percentiles:
+        http.server.requests: 0.5, 0.9, 0.95, 0.99
 
 logging:
   level:
