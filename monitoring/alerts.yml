@@ -1,0 +1,106 @@
+# Used this one for short bursts on receiving emails
+
+# groups:
+# - name: harborwatch-screenshot
+#   rules:
+
+#   # CPU > 10% for ~10s (container)
+#   # Use a short rate window so it reacts fast.
+#   - alert: ContainerHighCPU
+#     expr: rate(container_cpu_usage_seconds_total{name="hw-app"}[10s]) > 0.10
+#     for: 10s
+#     labels:
+#       severity: info
+#     annotations:
+#       summary: "High CPU (screenshot mode)"
+#       description: "CPU > 10% for ~10s (value={{ $value }})"
+
+#   # Memory > 20% for ~15s (container)
+#   - alert: ContainerHighMemory
+#     expr: (container_memory_working_set_bytes{name="hw-app"} / container_spec_memory_limit_bytes{name="hw-app"}) * 100 > 20
+#     for: 15s
+#     labels:
+#       severity: info
+#     annotations:
+#       summary: "High Memory (screenshot mode)"
+#       description: "Memory > 20% for ~15s (value={{ $value }}%)"
+
+#   # Health latency > 200ms for ~15s (blackbox)
+#   - alert: AppHealthSlow
+#     expr: avg_over_time(probe_duration_seconds{job="blackbox",instance="http://app:8080/actuator/health"}[15s]) > 0.2
+#     for: 15s
+#     labels:
+#       severity: info
+#     annotations:
+#       summary: "Health slow (screenshot mode)"
+#       description: "Avg probe latency > 200ms over ~15s (value={{ $value }}s)"
+
+#   # App down for ~20s (blackbox)
+#   - alert: AppDown
+#     expr: probe_success{job="blackbox",instance="http://app:8080/actuator/health"} == 0
+#     for: 20s
+#     labels:
+#       severity: critical
+#     annotations:
+#       summary: "App down (screenshot mode)"
+#       description: "Blackbox probe failing for ~20s"
+
+
+# Simple alerts with thresholds:
+# - CPU > 40% for 2m (container)
+# - Memory > 50% for 5m (container)
+# - Health latency > 1s for 3m (blackbox)
+# - App down for 1m (blackbox)
+#
+# NOTE: The 'name="hw-app"' label used below should match what cAdvisor exposes
+# for your app container. If it doesn't fire, open Prometheus (http://localhost:9090),
+# run: label_values(container_cpu_usage_seconds_total, name)
+# and replace the label value accordingly.
+
+groups:
+- name: harborwatch-simple
+  rules:
+
+  # 1) CPU > 40% for 2 minutes
+  # rate(container_cpu_usage_seconds_total[2m]) is "cores used".
+  # 0.40 ~ 40% of a single core sustained over the window.
+  - alert: ContainerHighCPU
+    expr: rate(container_cpu_usage_seconds_total{name="hw-app"}[2m]) > 0.40
+    for: 2m
+    labels:
+      severity: warning
+    annotations:
+      summary: "High CPU on app"
+      description: "CPU > 40% for 2m (value={{ $value }})"
+
+  # 2) Memory > 50% for 5 minutes
+  # Requires the container to have a memory limit (you set 1024M in compose).
+  - alert: ContainerHighMemory
+    expr: (container_memory_working_set_bytes{name="hw-app"} / container_spec_memory_limit_bytes{name="hw-app"}) * 100 > 50
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "High Memory on app"
+      description: "Memory > 50% for 5m (value={{ $value }}%)"
+
+  # 3) Health latency > 1s for 3 minutes
+  # We average the blackbox probe time over 3 minutes.
+  - alert: AppHealthSlow
+    expr: avg_over_time(probe_duration_seconds{job="blackbox",instance="http://app:8080/actuator/health"}[3m]) > 1
+    for: 3m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Health endpoint slow"
+      description: "Avg probe latency > 1s over 3m (value={{ $value }}s)"
+
+  # 4) App down for 1 minute
+  - alert: AppDown
+    expr: probe_success{job="blackbox",instance="http://app:8080/actuator/health"} == 0
+    for: 1m
+    labels:
+      severity: critical
+    annotations:
+      summary: "App down"
+      description: "Blackbox probe failing for 1m"

@@ -68,6 +68,8 @@ services:
       - --max_housekeeping_interval=1s      # don’t back off
       - --allow_dynamic_housekeeping=false  # keep interval fixed
     restart: unless-stopped
+    networks:
+      - hw-net
 
   node_exporter:
     image: prom/node-exporter:v1.8.1
@@ -83,6 +85,56 @@ services:
       - /sys:/host/sys:ro
       - /:/rootfs:ro
     restart: unless-stopped
+    networks:
+      - hw-net
+  
+  blackbox:
+    image: prom/blackbox-exporter:v0.25.0
+    container_name: hw-blackbox
+    ports:
+      - "9115:9115"
+    volumes:
+      - ./monitoring/blackbox.yml:/etc/blackbox_exporter/config.yml:ro
+    restart: unless-stopped
+    networks:
+      - hw-net
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: hw-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+    depends_on:
+      - app
+      - cadvisor
+      - node_exporter
+      - blackbox
+    restart: unless-stopped
+    networks:
+      - hw-net
+
+  alertmanager:
+    build:
+      context: ./monitoring
+      dockerfile: Alertmanager.Dockerfile
+    container_name: hw-alertmanager
+    ports:
+      - "9093:9093"
+    environment:
+      # Compose reads these from your .env automatically
+      ALERT_FROM: ${ALERT_FROM}
+      ALERT_TO: ${ALERT_TO}
+      SES_REGION: ${SES_REGION}
+      SES_SMTP_USER: ${SES_SMTP_USER}
+      SES_SMTP_PASS: ${SES_SMTP_PASS}
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    networks:
+      - hw-net
 
 networks:
   hw-net:

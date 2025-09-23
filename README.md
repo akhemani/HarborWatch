@@ -1,251 +1,216 @@
-# HarborWatch — Step 2 (Core App + Postgres + Health + LoadServer + DebugAPIs + Background Scheduler)
+# HarborWatch — Step 4: Central Scrape + Alerting (Core App + Postgres + Health + LoadServer + DebugAPIs + Background Scheduler + Prometheus + Alertmanager + Blackbox + SES)
 
-This repository includes Steps 1–3 of the HarborWatch project, providing a Spring Boot application with stress testing capabilities, metrics exposure, and a Bash automation script (`cli_live_dashboard.sh`) for running tests and monitoring.
+In this **Step 4**: Prometheus scrapes app, container, and host metrics; Blackbox actively probes health/latency; and Alertmanager sends real emails via AWS SES (SMTP). Dashboards (Grafana) are planned for Step 5.
 
-## Table of Contents
-- [What's Included (Steps 1–3)](#whats-included-steps-1–3)
-- [Repo Structure](#repo-structure)
-- [Services (Docker Compose)](#services-docker-compose)
-- [Database Schema](#database-schema)
-- [Build and Run](#build-and-run)
-- [Endpoints (Step 3)](#endpoints-step-3)
-- [Load / Stress (Step 2)](#load--stress-step-2)
-- [Debug (Step 2 — Dev-Only)](#debug-step-2--dev-only)
-- [Metrics (Step 3)](#metrics-step-3)
-- [Automation Script (cli_live_dashboard.sh)](#automation-script-cli_live_dashboard)
-  - [Overview](#overview)
-  - [How to Run](#how-to-run)
-  - [Menu Options](#menu-options)
-  - [Output After Each Run](#output-after-each-run)
-  - [Prerequisites](#prerequisites)
-  - [Troubleshooting](#troubleshooting)
-  - [Tips](#tips)
- 
+## What's Included (Up to Step 4)
+- ✅ **Step 1**: Core app + Postgres + Health endpoint (`/actuator/health`)
+- ✅ **Step 2**: Load endpoints + 5s scheduler + clear logs (IST)
+  - Tables: `performance_data`, `computation_results`
+- ✅ **Step 3**: Metrics exposure (no dashboards)
+  - `/actuator/prometheus`, cAdvisor (container metrics), node_exporter (host metrics)
+- ✅ **Step 4**: Prometheus + Blackbox + Alertmanager
+  - Central scrape
+  - Alert rules: CPU > 40%, Memory > 50%, Health latency > 1s, App down
+  - Emails via SES SMTP
+- ✅ Menu script (`cli_live_dashboard.sh`) to drive load & print metric/log snapshots
 
-## What's Included (Steps 1–3)
-
-- ✅ **Step 1: Core App + Postgres + Health**
-  - Spring Boot service with `/actuator/health`
-  - Postgres with Flyway migrations
-  - Schema: `performance_data`, `computation_results`
-  - Docker Compose: `db` + `app`
-
-- ✅ **Step 2: Load Endpoints + Background Jobs + Clear Logs**
-  - Endpoints to create CPU, memory, and database load
-  - `@Scheduled` job (every 5s) writing metrics to DB
-  - Logs to stdout (no log files), human-readable, IST timestamps
-  - Optional debug endpoints to inspect DB state
-
-- ✅ **Step 3: Metrics Exposure (No Dashboards)**
-  - `/actuator/prometheus` (Micrometer + Prometheus registry)
-  - cAdvisor (container metrics/UI)
-  - `node_exporter` (host metrics)
-
-- ✅ **Automation Script (`cli_live_dashboard.sh`)**
-  - Menu-driven stress tests + metrics snapshots + last logs
-  - Options to reset app metrics and/or truncate DB tables
-
-## Repo Structure
-
-```text
+## Repository Layout
+```plaintext
 harborwatch/
-  ├─ docker-compose.yml             # db + app + cadvisor + node_exporter
-  ├─ Dockerfile                     # Java 21 JRE base, non-root
-  ├─ README.md                      # this file
-  ├─ cli_live_dashboard.sh                 # menu script (stress + metrics + logs)
-  ├─ pom.xml
-  └─ src/
-     └─ main/
-        ├─ java/dev/harborwatch/
-        │  ├─ HarborWatchApplication.java      # @EnableScheduling
-        │  ├─ load/LoadService.java            # CPU/Mem/DB/Combined logic
-        │  ├─ load/LoadController.java         # /api/* endpoints
-        │  ├─ load/MetricsScheduler.java       # 5s tick → performance_data (IST)
-        │  └─ debug/
-        │     ├─ DebugController.java          # recent rows & counts
-        │     └─ ClockDebugController.java     # app vs DB time & last rows
-        └─ resources/
-           ├─ application.yml                  # DB, Actuator, Micrometer, logging
-           ├─ logback-spring.xml               # plain text logs in IST
-           └─ db/migration/
-              ├─ V1__init.sql                  # base schema
-              └─ V2__ist_timezone_and_types.sql # timestamptz + Asia/Kolkata
+├── docker-compose.yml
+├── Dockerfile
+├── cli_live_dashboard.sh
+├── README.md
+├── pom.xml
+├── monitoring/
+│   ├── prometheus.yml        # Prometheus scrape config
+│   ├── alerts.yml           # Prometheus alert rules
+│   ├── blackbox.yml         # Blackbox module (http_2xx)
+│   ├── Alertmanager.Dockerfile  # Custom AM image
+│   ├── alertmanager-run.sh   # Renders template with env + starts AM
+│   └── alertmanager.yml.tmpl # Alertmanager config template (envsubst)
+└── src/
+    └── main/...
 ```
+*Note*: Ensure filenames match `docker-compose.yml`: `Alertmanager.Dockerfile`, `alertmanager-run.sh`, `alertmanager.yml.tmpl`.
 
 ## Services (Docker Compose)
-
-- **db** — Postgres 15
-  - Health check: `pg_isready`
-  - TZ env: `TZ=Asia/Kolkata`, `PGTZ=Asia/Kolkata`
-  - DB: `appdb` / user: `postgres` / pass: `postgres123`
-
-- **app** — Spring Boot service
-  - Exposes:
-    - `GET /actuator/health`
-    - `GET /actuator/prometheus`
-    - `GET /api/...` (load endpoints)
-    - `GET /api/debug/...` (dev only)
-  - JVM TZ: `-Duser.timezone=Asia/Kolkata`
-  - Logs: stdout, IST timestamps
-
-- **cadvisor** — Container metrics + simple UI
-  - UI: `http://localhost:8085`
-
-- **node_exporter** — Host metrics
-  - Text metrics on `http://localhost:9100` (host network mode)
-
-## Database Schema
-
-- **performance_data**
-  - Written by:
-    - Scheduler (every 5s): `cpu_load`, `memory_usage`, `request_count`, `error_rate`
-    - `/api/database-intensive`: many `test_metric_*` rows per run
-
-- **computation_results**
-  - Written by:
+The stack runs 7 services:
+- **db**: Postgres 15 (`appdb`, user: `postgres`, pass: `postgres123`, IST)
+- **app**: Spring Boot service (JVM TZ IST)
+  - **Load Endpoints**:
     - `/api/cpu-intensive`
+    - `/api/memory-intensive`
     - `/api/database-intensive`
     - `/api/combined-stress`
+  - **Debug Endpoints (dev-only)**:
+    - `/api/debug/summary`
+    - `/api/debug/performance/recent`
+    - `/api/debug/computations/recent`
+    - `/api/debug/now`
+  - **Actuator**:
+    - `/actuator/health`
+    - `/actuator/prometheus`
+- **cadvisor**: Container metrics + UI (`http://localhost:8085`)
+- **node_exporter**: Host metrics (`http://localhost:9100/metrics`)
+- **blackbox**: Active HTTP probe for app health/latency
+- **prometheus**: Central scrape + alerts (`http://localhost:9090`)
+- **alertmanager**: Routing/notifications via AWS SES SMTP (`http://localhost:9093`)
+  - Custom image: renders config from template with env vars at startup
 
-## Build and Run
+The updated `docker-compose.yml` includes all services, with tuned cAdvisor housekeeping flags and the custom Alertmanager build.
 
-Run the following command to build and start the services:
+## Alerting Thresholds (PromQL)
+Defined in `monitoring/alerts.yml`:
+- **Container CPU > 40% for 2m**:
+  ```promql
+  rate(container_cpu_usage_seconds_total{name="hw-app"}[2m]) > 0.40
+  ```
+- **Container Memory > 50% for 5m**:
+  ```promql
+  (container_memory_working_set_bytes{name="hw-app"} / container_spec_memory_limit_bytes{name="hw-app"}) * 100 > 50
+  ```
+- **Health latency > 1s for 3m (Blackbox)**:
+  ```promql
+  avg_over_time(probe_duration_seconds{job="blackbox-http",instance="http://app:8080/actuator/health"}[3m]) > 1
+  ```
+- **App down for 1m (Blackbox)**:
+  ```promql
+  probe_success{job="blackbox-http",instance="http://app:8080/actuator/health"} == 0
+  ```
 
-```bash
-docker compose up -d --build
+If cAdvisor labels differ, inspect `container_cpu_usage_seconds_total` in Prometheus → Graph to find the correct label (e.g., `name="hw-app"`).
+
+## Email Delivery (Alertmanager → SES SMTP)
+A custom Alertmanager image renders `alertmanager.yml` from a template using environment variables at runtime:
+- **Template**: `monitoring/alertmanager.yml.tmpl`
+- **Entrypoint**: `monitoring/alertmanager-run.sh` (uses `envsubst`, logs first 20 lines for sanity)
+- **Dockerfile**: `monitoring/Alertmanager.Dockerfile` (alpine, non-root user, copies binaries from Prometheus release tarball)
+
+### Required `.env` File
+Create a `.env` file in the repo root (loaded automatically by Compose):
+```plaintext
+# Sender (must be verified in SES if sandbox)
+ALERT_FROM=monitoring@yourdomain.com
+# Comma-separated recipients (must be verified if SES in sandbox)
+ALERT_TO=you@yourdomain.com,team@yourdomain.com
+# SES region and SMTP creds (NOT AWS access keys)
+SES_REGION=ap-south-1
+SES_SMTP_USER=AKIAXXXXXXXXEXAMPLE
+SES_SMTP_PASS=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+Obtain SMTP credentials from SES Console → SMTP Settings. If SES is in sandbox mode, verify `ALERT_FROM` and recipients, or request production access.
+
+### Rendered Alertmanager Config
+```yaml
+global:
+  smtp_smarthost: email-smtp.ap-south-1.amazonaws.com:587
+  smtp_from: monitoring@yourdomain.com
+  smtp_auth_username: AKIAXXX...
+  smtp_auth_password: xxxxx...
+  smtp_require_tls: true
+route:
+  receiver: team-email
+  group_wait: 60s
+  group_interval: 5m
+  repeat_interval: 2h
+receivers:
+  - name: team-email
+    email_configs:
+      - to: you@yourdomain.com,team@yourdomain.com
 ```
 
-## Endpoints (Step 3)
-
-- **App Base URL**: `http://localhost:8080`
-- **Actuator Health**: `http://localhost:8080/actuator/health`
-- **Prometheus Exporter**: `http://localhost:8080/actuator/prometheus`
-- **cAdvisor UI**: `http://localhost:8085`
-- **node_exporter Metrics**: `http://localhost:9100/metrics`
-
-## Load / Stress (Step 2)
-
-- `GET /api/cpu-intensive?iterations=1000000`
-- `GET /api/memory-intensive?sizeMb=50`
-- `GET /api/database-intensive?ops=1000`
-- `GET /api/combined-stress?durationSec=20`
-
-## Debug (Step 2 — Dev-Only)
-
-- `GET /api/debug/summary` — Row counts in both tables
-- `GET /api/debug/performance/recent` — Last 10 `performance_data` rows
-- `GET /api/debug/computations/recent` — Last 10 `computation_results` rows
-- `GET /api/debug/now` — Compare app clock, DB clock, and latest rows
-
-## Metrics (Step 3)
-
-- **Prometheus**: `GET /actuator/prometheus` — App metrics (JVM, threads, GC, `http.server.requests`, etc.)
-- **cAdvisor**: `http://localhost:8085` — Container CPU, memory, filesystem, and I/O per container
-- **node_exporter**: `http://localhost:9100/metrics` — Host CPU, memory, disk, and network metrics
-
-## Automation Script (cli_live_dashboard.sh)
-
-### Overview
-The `cli_live_dashboard.sh` script automates stress testing for your application by running various test patterns (CPU, memory, database, or combined) and outputs key metrics and logs. It integrates with Docker, Prometheus, and cAdvisor for monitoring and is designed to be run at the root of your repository.
-
-### How to Run
-1. Place the script at the repository root as `cli_live_dashboard.sh`.
-2. Make it executable:
+## Build & Run
+1. Build the app (if changed):
    ```bash
-   chmod +x cli_live_dashboard.sh
+   ./mvnw -q -DskipTests package
    ```
-3. Run the script:
+2. Bring everything up (builds custom Alertmanager image):
    ```bash
-   ./cli_live_dashboard.sh
+   docker compose up -d --build
    ```
+3. Verify targets:
+   - Prometheus UI: `http://localhost:9090` → Status → Targets (all "UP")
+   - Alertmanager UI: `http://localhost:9093` → Status → "Config" (confirm rendered settings)
+   - cAdvisor UI: `http://localhost:8085`
+   - App metrics: `http://localhost:8080/actuator/prometheus`
+   - Host metrics: `http://localhost:9100/metrics`
 
-### Menu Options
-The script provides the following menu options for stress testing:
+Alertmanager container logs will show:
+```
+[am] Rendered /etc/alertmanager/alertmanager.yml
+----- rendered config (first lines) -----
+...
+-----------------------------------------
+```
 
-- **Low CPU**: Burst iterations=200,000
-- **High CPU**: Burst iterations=5,000,000
-- **Memory**: Burst sizeMb=100
-- **Database**: Burst ops=800
-- **Combined (heavy)**: Parallel combined stress + interleaved CPU/memory bursts
-- **Reset metrics**: Restart app container (resets Actuator counters; DB unchanged)
-- **Reset metrics + wipe DB tables**: Restart app + TRUNCATE both tables
-- **Exit**: Exit the script
+## Generate Alerts (Manual Tests)
+Use the menu script `./cli_live_dashboard.sh` (recommended) or plain `curl`:
 
-### Output After Each Run
-After each test run, the script outputs:
-
-#### App Metrics (from `/actuator/prometheus`)
-- `process_cpu_usage`
-- Aggregated `http_server_requests_seconds`:
-  - Count
-  - Sum
-  - Max
-  - Average (for the chosen URI)
-
-#### Host Metrics (from `node_exporter` on `:9100`)
-- Per-CPU time spent in:
-  - Idle
-  - Iowait
-  - IRQ
-  - Nice
-  - Softirq
-  (Shows first 16 CPUs by default)
-- `MemAvailable_bytes` (displayed in GiB)
-
-#### Logs
-- Last 8 application logs (stdout tail of `hw-app`)
-
-### Prerequisites
-- **Docker stack**: Ensure the stack is running:
+- **High CPU (2m)**:
   ```bash
-  docker compose up -d
+  curl "http://localhost:8080/api/cpu-intensive?iterations=5000000"
   ```
-- **Dependencies**: The script uses `bash`, `curl`, `awk`, and `grep`.
-- **Prometheus Actuator**: Ensure `micrometer-registry-prometheus` is included in `pom.xml` and configured in `application.yml`:
-  ```yaml
-  management:
-    endpoints:
-      web:
-        exposure:
-          include: health,info,prometheus
-  ```
+  Or menu: `2) High CPU` / `5) Combined (heavy)`
+  - Prometheus → Alerts: `ContainerHighCPU` → Pending → Firing → email sent
 
-### Troubleshooting
-#### No New Scheduler Rows
-- Rebuild and restart the application:
+- **High Memory (5m)**:
   ```bash
-  ./mvnw -q -DskipTests package && docker compose up -d --build
+  curl "http://localhost:8080/api/memory-intensive?sizeMb=700"
   ```
-- Check logs for scheduler tick `START/DONE` lines:
+  (Assuming app memory limit ≈ 1024M; adjust size or repeat calls.)
+  - Checks `ContainerHighMemory`
+
+- **Slow Health (3m)**:
   ```bash
-  docker logs -f hw-app
+  curl "http://localhost:8080/api/combined-stress?durationSec=120"
   ```
+  - Checks `AppHealthSlow` via Blackbox probe duration
 
-#### DB Time Incorrect
-- Verify the database time:
-  ```sql
-  SELECT now();
-  ```
-
-#### `/actuator/prometheus` Missing
-- Ensure `micrometer-registry-prometheus` is in `pom.xml`.
-- Verify `application.yml` configuration (see [Prerequisites](#prerequisites)).
-
-#### cAdvisor UI Not Loading
-- Visit `http://localhost:8085`.
-- Check Docker volumes and permissions (Linux requires `/sys` and `/var/run/docker.sock` binds).
-
-#### High Resource Usage
-- Reduce the following parameters in the script or your `curl` tests:
-  - Iterations
-  - `sizeMb`
-  - `ops`
-  - `durationSec`
-
-### Tips
-- **View all CPUs**: Run the script with:
+- **App Down (1m)**:
   ```bash
-  MAX_CPUS=999 ./cli_live_dashboard.sh
+  docker stop hw-app
+  # wait ~1m → "AppDown" alert → email
+  docker start hw-app
+  # alert resolves, Alertmanager shows "Resolved"
   ```
-- **Monitor with cAdvisor**: Open `http://localhost:8085` and click the `hw-app` container to monitor resource usage during tests.
 
+## Useful URLs
+- App: `http://localhost:8080`
+  - Health: `/actuator/health`
+  - Metrics: `/actuator/prometheus`
+- Prometheus: `http://localhost:9090`
+  - Status → Targets (scrape health)
+  - Alerts (active/disabled/firing)
+  - Graph (ad-hoc queries)
+- Alertmanager: `http://localhost:9093`
+- cAdvisor: `http://localhost:8085`
+- node_exporter: `http://localhost:9100/metrics`
+
+## Troubleshooting
+- **No Emails**:
+  - Alertmanager UI → Status (Config loaded?) / Alerts (firing?)
+  - `docker logs -f hw-alertmanager` (check SMTP errors)
+  - SES sandbox requires verified `ALERT_FROM` and recipients
+- **Prometheus “DOWN” Targets**:
+  - Prometheus UI → Status → Targets → check errors
+  - Ensure Compose service DNS names match configs: `app:8080`, `cadvisor:8080`, `node_exporter:9100`, `blackbox:9115`
+- **CPU/Memory Alerts Not Firing**:
+  - Labels may differ. Inspect in Prometheus:
+    ```promql
+    label_values(container_cpu_usage_seconds_total, name)
+    ```
+  - Update `alerts.yml` with correct `name="..."`.
+  - Memory alert needs a container memory limit. Confirm in Prometheus:
+    ```promql
+    container_spec_memory_limit_bytes{name="hw-app"}
+    container_memory_working_set_bytes{name="hw-app"}
+    ```
+- **Alert Storming**:
+  - Tune Alertmanager `group_wait`, `group_interval`, `repeat_interval`
+  - Raise rule `for` windows (e.g., 3–10m) to avoid flapping
+
+## Security & Ops Notes
+- Alertmanager runs non-root and renders config via `envsubst` (no creds baked into image)
+- Keep `.env` out of source control; use Docker secrets or a credentials manager in production
+- Prometheus TSDB retention is 7 days (set in `prometheus` args); tune as needed

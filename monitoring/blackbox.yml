@@ -1,0 +1,13 @@
+# monitoring/blackbox.yml
+# Minimal blackbox-exporter config.
+# We define a single HTTP probe module that considers 2xx/3xx as success.
+# Prometheus will pass the real target URL (our app's /actuator/health) via relabeling.
+
+modules:
+  http_2xx:
+    prober: http
+    timeout: 5s
+    http:
+      # By default blackbox treats 2xx and 3xx as success.
+      # We keep defaults to stay simple.
+      preferred_ip_protocol: ip4
