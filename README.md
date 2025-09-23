@@ -1,4 +1,4 @@
-# HarborWatch — Step 2 (Core App + Postgres + Health + LoadServer + DebugAPIs + Background Scheduler)
+# HarborWatch — Step 3 (Core App + Postgres + Health + LoadServer + DebugAPIs + Background Scheduler)
 
 This repository includes Steps 1–3 of the HarborWatch project, providing a Spring Boot application with stress testing capabilities, metrics exposure, and a Bash automation script (`cli_live_dashboard.sh`) for running tests and monitoring.
 
