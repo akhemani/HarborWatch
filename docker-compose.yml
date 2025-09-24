@@ -44,6 +44,13 @@ services:
     restart: unless-stopped
     networks:
       - hw-net
+    mem_limit: 1024m          # effective in docker compose
+    cpus: "1.0"               # cap to 1 CPU
+    healthcheck:
+      test: [ "CMD", "curl", "-fsS", "http://localhost:8080/actuator/health/readiness" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:v0.47.2
@@ -135,6 +142,33 @@ services:
     restart: unless-stopped
     networks:
       - hw-net
+
+  grafana:
+    image: grafana/grafana:10.4.6
+    container_name: hw-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - ./monitoring/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./monitoring/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/dashboards:/etc/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    networks: [ hw-net ]
+
+  # Optional: ephemeral k6 runner (mounts scripts; run with `docker compose run k6 run ...`)
+  k6:
+    image: grafana/k6:0.51.0
+    container_name: hw-k6
+    working_dir: /scripts
+    entrypoint: [ "sleep", "infinity" ]
+    volumes:
+      - ./k6:/scripts:ro
+    networks: [ hw-net ]
 
 networks:
   hw-net:

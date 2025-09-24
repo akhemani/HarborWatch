@@ -1,0 +1,84 @@
+{
+  "title": "HarborWatch — SRE Overview",
+  "uid": "hw-sre",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "App p50 latency (s)",
+      "gridPos": {"x":0,"y":0,"w":6,"h":4},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.5, sum(rate(http_server_requests_seconds_bucket{job=\"app\"}[5m])) by (le))",
+          "legendFormat": "p50"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "App p95 latency (s)",
+      "gridPos": {"x":6,"y":0,"w":6,"h":4},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{job=\"app\"}[5m])) by (le))",
+          "legendFormat": "p95"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "App error rate (%)",
+      "gridPos": {"x":12,"y":0,"w":6,"h":4},
+      "targets": [
+        {
+          "expr": "100 * ( sum(rate(http_server_requests_seconds_count{status=~\"5..\",job=\"app\"}[5m])) / sum(rate(http_server_requests_seconds_count{job=\"app\"}[5m])) )",
+          "legendFormat": "5xx %"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Container CPU (cores, hw-app)",
+      "gridPos": {"x":0,"y":4,"w":12,"h":8},
+      "targets": [
+        {
+          "expr": "rate(container_cpu_usage_seconds_total{name=\"hw-app\"}[1m])",
+          "legendFormat": "hw-app"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Container Memory % (hw-app)",
+      "gridPos": {"x":12,"y":4,"w":12,"h":8},
+      "targets": [
+        {
+          "expr": "100 * (container_memory_working_set_bytes{name=\"hw-app\"} / container_spec_memory_limit_bytes{name=\"hw-app\"})",
+          "legendFormat": "% used"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Uptime (1=up, 0=down) — blackbox probe",
+      "gridPos": {"x":0,"y":12,"w":12,"h":8},
+      "targets": [
+        {
+          "expr": "probe_success{job=\"blackbox-http\",instance=\"http://app:8080/actuator/health\"}",
+          "legendFormat": "probe_success"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "title": "Alertmanager",
+      "gridPos": {"x":12,"y":12,"w":12,"h":8},
+      "options": {
+        "content": "<a href=\"http://localhost:9093\" target=\"_blank\">Open Alertmanager</a>",
+        "mode": "html"
+      }
+    }
+  ]
+}

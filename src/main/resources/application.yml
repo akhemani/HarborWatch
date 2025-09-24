@@ -5,6 +5,10 @@ server:
       enabled: true
       # "combined" includes remote addr & user agent; outputs to /logs in container
       pattern: combined
+    threads:
+      max: 100
+      min-spare: 10
+  shutdown: graceful
 
 spring:
   datasource:
@@ -28,6 +32,9 @@ management:
   endpoint:
     prometheus:
       enabled: true
+    health:
+      probes:
+        enabled: true
   metrics:
     distribution:
       percentiles-histogram:
