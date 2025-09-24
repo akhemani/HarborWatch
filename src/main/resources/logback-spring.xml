@@ -1,0 +1,33 @@
+<!--
+  logback-spring.xml
+  Goal:
+    - Keep logs SIMPLE and HUMAN-READABLE while learning (plain text).
+    - Print: time, level, thread, logger (short), and message.
+    - Logs go to STDOUT (good for Docker). No files on disk.
+  Note:
+    - In production you often switch to JSON + a log shipper.
+    - We’ll keep it plain here so you can "see" everything easily.
+-->
+<configuration scan="true">
+
+  <!-- Console appender (stdout) with human-friendly pattern -->
+  <appender name="CONSOLE_PLAIN" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder>
+      <!-- Example:
+           2025-09-20 12:34:56.789  INFO [main] d.h.load.LoadService - cpuIntensive start iterations=1000000
+      -->
+      <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS,Asia/Kolkata} %-5level [%thread] %logger{36} - %msg%n</pattern>
+    </encoder>
+  </appender>
+
+  <!-- Root logger level (can also be tuned from application.yml) -->
+  <root level="INFO">
+    <appender-ref ref="CONSOLE_PLAIN"/>
+  </root>
+
+  <!-- Quiet down noisy frameworks unless debugging -->
+  <logger name="org.hibernate.SQL" level="WARN"/>
+  <logger name="org.hibernate.type.descriptor.sql.BasicBinder" level="WARN"/>
+  <logger name="org.springframework.jdbc.core" level="INFO"/>
+
+</configuration>

@@ -1,0 +1,53 @@
+# monitoring/prometheus.yml
+# Small, readable Prometheus config:
+# - Scrapes app /actuator/prometheus (Micrometer)
+# - Scrapes cAdvisor (container metrics)
+# - Scrapes node_exporter (host metrics)
+# - Uses blackbox-exporter to actively probe app /actuator/health
+# - Loads alert rules from alerts.yml
+#
+# Tip: open http://localhost:9090 -> Status -> Targets to verify all jobs are UP.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
+
+scrape_configs:
+  - job_name: 'app'
+    scrape_interval: 2s
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['app:8080']
+
+  - job_name: 'cadvisor'
+    scrape_interval: 2s
+    static_configs:
+      - targets: ['cadvisor:8080']
+  
+  - job_name: 'node_exporter'
+    scrape_interval: 5s              # host can be a bit slower
+    static_configs: [ { targets: ['node_exporter:9100'] } ]
+
+  - job_name: 'blackbox'
+    scrape_interval: 2s
+    metrics_path: /probe
+    params:
+      module: [ http_2xx ]
+    static_configs:
+      - targets:
+          - http://app:8080/actuator/health
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox:9115
